@@ -195,3 +195,5 @@ Stated up front, because a security tool that hides its limits is not one.
 ## License
 
 MIT
+
+By [Ziya Azizov (ayfar)](https://ayfar.vercel.app) · [LinkedIn](https://www.linkedin.com/in/ziya-azizov-91bba638a)
