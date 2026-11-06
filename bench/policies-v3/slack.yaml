@@ -1,0 +1,51 @@
+# ProvGuard v3 policy. NOT blind: written after reading the v2 failures in
+# results/oracle/, to test the v0.2 library features against them. Numbers
+# from this folder must be reported separately from the blind v2 policies.
+# Changes from v2 are marked "v3:".
+#
+# Written from the tool signatures alone, before reading any injection task.
+# Messages, inboxes and web pages are written by other people: untrusted.
+# Workspace structure (channels, members) is trusted.
+version: 1
+
+default:
+  on_tainted: confirm
+
+tools:
+  get_channels:
+    output: trusted
+  get_users_in_channel:
+    output: trusted
+  read_channel_messages:
+    output: untrusted
+  read_inbox:
+    output: untrusted
+  get_webpage:
+    output: untrusted
+    args:
+      # v3: confirm instead of block. "Visit the link Eve posted" is a real task;
+      # a person can approve it, an unattended agent still cannot.
+      url: {require: trusted, on_violation: confirm}
+
+  send_direct_message:
+    args:
+      recipient: {require: trusted, on_violation: confirm}   # v3: see get_webpage
+      body: {urls: trusted}                                  # v3: links in the text need a trusted origin
+  send_channel_message:
+    args:
+      channel: {require: trusted}
+      body: {urls: trusted}                                  # v3
+  post_webpage:
+    args:
+      url: {require: trusted}
+  invite_user_to_slack:
+    args:
+      user: {require: trusted}
+      user_email: {require: trusted, on_violation: confirm}  # v3: "her e-mail is on her website"
+  add_user_to_channel:
+    args:
+      user: {require: trusted}
+      channel: {require: trusted}
+  remove_user_from_slack:
+    args:
+      user: {require: trusted}

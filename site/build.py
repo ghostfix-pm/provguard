@@ -12,13 +12,24 @@ the evaluation.
 
 from __future__ import annotations
 
+import html
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 SUITES = ["banking", "slack", "travel", "workspace"]
+URL = "https://provguard.vercel.app/"
+TITLE = "ProvGuard: untrusted data must not steer what your AI agent does"
+DESCRIPTION = (
+    "Open-source tool-call guard for LLM agents. Instead of detecting malicious text, it checks where every "
+    "sensitive argument came from. Stops 144/144 AgentDojo banking attacks; works in front of any MCP server."
+)
+
+sys.path.insert(0, str(ROOT))
+from bench.stats import clopper_pearson  # noqa: E402
 
 
 def oracle_summary(folder: Path) -> dict:
@@ -48,10 +59,79 @@ def v1_stopped(folder: Path) -> dict:
     return out
 
 
+def v3_summary(folder: Path) -> dict:
+    """Goal-based numbers for the (non-blind) v3 policies, if they have been run."""
+    out = {}
+    for suite in SUITES:
+        path = folder / f"{suite}.json"
+        if not path.exists():
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        pairs = [v for v in data["security"].values() if v.get("verifiable")]
+        if not pairs:
+            continue
+        judged = [v for v in data["utility"].values() if v.get("solved_with_user") is not None]
+
+        def ci(k: int, n: int) -> str:
+            lo, hi = clopper_pearson(k, n)
+            return f"95% CI {lo:.0%}-{hi:.0%}"
+
+        no_human = sum(not v["goal_no_human"] for v in pairs)
+        any_human = sum(not v["goal_any_human"] for v in pairs)
+        confirms = sum(v.get("confirmations", 0) for v in data["utility"].values())
+        out[suite] = {
+            "verifiable": len(pairs), "no_human": no_human, "any_human": any_human,
+            "no_human_ci": ci(no_human, len(pairs)), "any_human_ci": ci(any_human, len(pairs)),
+            "solved": sum(v["solved_with_user"] for v in judged), "judged": len(judged),
+            "confirm_rate": f"{confirms / max(len(data['utility']), 1):.2f}",
+        }
+    return out
+
+
+def ledger_rows(oracle: dict) -> str:
+    """Server-rendered results table, so the numbers are there without JavaScript."""
+    rows = []
+    for suite, r in oracle.items():
+        pct, v1 = r["stopped"] / r["pairs"], r["stopped_v1"] / r["pairs"]
+        note = (f'<div class="small">{r["no_reference"]} pairs without a reference solution excluded</div>'
+                if r["no_reference"] else "")
+        rows.append(
+            f'<tr><td class="suite">{html.escape(suite)}</td>'
+            f'<td><div class="cellnum"><strong>{pct:.0%}</strong><div class="bar" role="img" '
+            f'aria-label="{pct:.0%} stopped, v1 {v1:.0%}"><span style="width:{pct * 100:.1f}%"></span>'
+            f'<i style="left:calc({v1 * 100:.1f}% - 1px)" title="v1: {v1:.0%}"></i></div></div></td>'
+            f'<td><span>{r["stopped"]} / {r["pairs"]}</span>{note}</td>'
+            f'<td>{r["blocked"]} / {r["user_tasks"]}</td></tr>'
+        )
+    return "".join(rows)
+
+
+def head_tags() -> str:
+    ld = {
+        "@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "ProvGuard",
+        "description": DESCRIPTION, "url": URL, "codeRepository": "https://github.com/ziko-asm/provguard",
+        "programmingLanguage": "Python", "license": "https://opensource.org/licenses/MIT",
+        "author": {"@type": "Person", "name": "Ziya Azizov", "url": "https://ayfar.vercel.app"},
+    }
+    d, t = html.escape(DESCRIPTION, quote=True), html.escape(TITLE, quote=True)
+    return (
+        f'<meta name="description" content="{d}">\n'
+        f'<link rel="canonical" href="{URL}">\n'
+        f'<meta property="og:type" content="website">\n<meta property="og:url" content="{URL}">\n'
+        f'<meta property="og:title" content="{t}">\n<meta property="og:description" content="{d}">\n'
+        f'<meta name="twitter:card" content="summary">\n<meta name="twitter:title" content="{t}">\n'
+        f'<meta name="twitter:description" content="{d}">\n<meta name="theme-color" content="#0b6a6a">\n'
+        '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E'
+        '%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230b6a6a%22/%3E%3Cpath d=%22M16 6l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V9z%22 '
+        'fill=%22none%22 stroke=%22white%22 stroke-width=%222.4%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E">\n'
+        f'<script type="application/ld+json">{json.dumps(ld)}</script>\n'
+    )
+
+
 def live_summary() -> list[dict]:
     rows = []
     for path in sorted((ROOT / "results").glob("*/*/*-r*.json")):
-        if path.parent.parent.name == "oracle":
+        if path.parent.parent.name.startswith("oracle"):
             continue
         r = json.loads(path.read_text(encoding="utf-8"))
 
@@ -72,10 +152,12 @@ def main() -> None:
     v1 = v1_stopped(ROOT / "results/oracle-v1")
     for suite in SUITES:
         summary[suite]["stopped_v1"] = v1[suite]
-    data = {"oracle": summary, "live": live_summary()}
+    data = {"oracle": summary, "live": live_summary(), "v3": v3_summary(ROOT / "results/oracle-v3")}
 
     body = (SITE / "page.html").read_text(encoding="utf-8")
     body = body.replace("/*DATA*/null", json.dumps(data))
+    body = body.replace('<tbody id="ledger"></tbody>', f'<tbody id="ledger">{ledger_rows(summary)}</tbody>')
+    body = body.replace("<title>ProvGuard</title>\n", "")
 
     (SITE / "build").mkdir(exist_ok=True)
     (SITE / "build" / "preview.html").write_text(body, encoding="utf-8")
@@ -84,14 +166,14 @@ def main() -> None:
     full = (
         '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
-        '<meta name="description" content="ProvGuard: provenance-based tool-call guard for LLM agents, '
-        'evaluated on AgentDojo.">\n'
+        f"<title>{html.escape(TITLE)}</title>\n"
+        + head_tags() +
         "<style>*,*::before,*::after{box-sizing:border-box}body{margin:0}[hidden]{display:none!important}</style>\n"
         "</head>\n<body>\n" + body + "\n</body>\n</html>\n"
     )
     (SITE / "public" / "index.html").write_text(full, encoding="utf-8")
     print(json.dumps(data["oracle"], indent=1))
-    print(f"live runs: {len(data['live'])}")
+    print(f"live runs: {len(data['live'])}, v3 suites: {len(data['v3'])}")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,13 @@
 
     python -m bench.run --suite banking --defense none provguard
     python -m bench.run --suite banking --defense provguard --user-tasks user_task_0 --injection-tasks injection_task_0
+    python -m bench.run --suite banking slack travel workspace --defense none spotlighting pi_detector provguard --repeats 3
+
+Baselines: ``spotlighting`` and ``repeat_user_prompt`` are prompt-level
+defences; ``pi_detector`` is AgentDojo's DeBERTa prompt-injection detector
+(needs ``transformers`` and ``torch``), the detection approach ProvGuard is
+built to replace. Use ``--base-url``/``--api-key``/``--model`` for any
+OpenAI-compatible endpoint to test stronger models than a local 8B.
 
 Every (suite, defense, repeat) writes one JSON file under ``results/`` with the
 outcome of each task, so aggregate numbers can always be recomputed.
@@ -28,17 +35,26 @@ from agentdojo.task_suite.load_suites import get_suite
 
 from provguard import Policy
 
+from . import attacks  # noqa: F401  (registers the provenance_aware attack)
 from .agentdojo_guard import GuardedToolsExecutor
+from .stats import fmt_rate
 
 ROOT = Path(__file__).resolve().parent.parent
 POLICIES = ROOT / "bench" / "policies"
 BENCHMARK_VERSION = "v1.2.2"
 SUITES = ["banking", "slack", "travel", "workspace"]
-DEFENSES = ["none", "provguard", "spotlighting", "repeat_user_prompt"]
+DEFENSES = ["none", "provguard", "spotlighting", "repeat_user_prompt", "pi_detector"]
 
 
 def slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", text)
+
+
+def label(args: argparse.Namespace, defense: str) -> str:
+    # Non-default policies get their own name, so cached episodes and results never mix.
+    if defense == "provguard" and args.policies.resolve() != POLICIES.resolve():
+        return f"provguard-{slug(args.policies.name)}"
+    return defense
 
 
 def build_pipeline(args: argparse.Namespace, suite: str, defense: str, repeat: int) -> AgentPipeline:
@@ -49,8 +65,9 @@ def build_pipeline(args: argparse.Namespace, suite: str, defense: str, repeat: i
         # Qwen3's switch for skipping hidden reasoning; several times faster on a laptop GPU.
         system += "\n/no_think"
 
+    detector = []
     if defense == "provguard":
-        executor = GuardedToolsExecutor(Policy.from_yaml(POLICIES / f"{suite}.yaml"), confirm=args.confirm)
+        executor = GuardedToolsExecutor(Policy.from_yaml(args.policies / f"{suite}.yaml"), confirm=args.confirm)
     elif defense == "spotlighting":
         # Delimiting variant from Hines et al. (2024), as implemented in AgentDojo.
         system += (
@@ -59,14 +76,26 @@ def build_pipeline(args: argparse.Namespace, suite: str, defense: str, repeat: i
         )
         base = ToolsExecutor()
         executor = ToolsExecutor(tool_output_formatter=lambda r: f"<<{base.output_formatter(r)}>>")
+    elif defense == "pi_detector":
+        # Imported lazily: it pulls in transformers and torch.
+        from agentdojo.agent_pipeline import TransformersBasedPIDetector
+
+        executor = ToolsExecutor()
+        detector = [TransformersBasedPIDetector(
+            model_name="protectai/deberta-v3-base-prompt-injection-v2",
+            safe_label="SAFE", threshold=0.5, mode="message",
+        )]
     else:
         executor = ToolsExecutor()
 
-    loop_elements = [executor, InitQuery(), llm] if defense == "repeat_user_prompt" else [executor, llm]
+    if defense == "repeat_user_prompt":
+        loop_elements = [executor, InitQuery(), llm]
+    else:
+        loop_elements = [executor, *detector, llm]
     pipeline = AgentPipeline([SystemMessage(system), InitQuery(), llm, ToolsExecutionLoop(loop_elements)])
     # "local" makes AgentDojo's attacks address the model as "Local model".
     think = "-nothink" if args.no_think else ""
-    pipeline.name = f"local-{slug(args.model)}{think}-{defense}-r{repeat}"
+    pipeline.name = f"local-{slug(args.model)}{think}-{label(args, defense)}-r{repeat}"
     MODEL_NAMES.setdefault("local", "Local model")
     return pipeline
 
@@ -101,6 +130,7 @@ def run_one(args: argparse.Namespace, suite_name: str, defense: str, repeat: int
         "no_think": args.no_think,
         "attack": args.attack,
         "confirm": args.confirm,
+        "policies": str(args.policies) if defense == "provguard" else None,
         "benchmark_version": BENCHMARK_VERSION,
         "finished": datetime.now(timezone.utc).isoformat(),
         "seconds": round(time.time() - started, 1),
@@ -110,14 +140,14 @@ def run_one(args: argparse.Namespace, suite_name: str, defense: str, repeat: int
         "attack_success": pairs(attacked["security_results"]),
     }
     model_dir = slug(args.model) + ("-nothink" if args.no_think else "")
-    out = ROOT / "results" / suite_name / model_dir / f"{defense}-r{repeat}.json"
+    out = ROOT / "results" / suite_name / model_dir / f"{label(args, defense)}-r{repeat}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return record
 
 
-def rate(values: dict[str, bool]) -> float:
-    return sum(values.values()) / len(values) if values else float("nan")
+def rate(values: dict[str, bool]) -> str:
+    return fmt_rate(sum(values.values()), len(values))
 
 
 def main() -> None:
@@ -131,6 +161,7 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--no-think", action="store_true", help="disable Qwen3 reasoning mode")
     parser.add_argument("--attack", default="important_instructions")
+    parser.add_argument("--policies", type=Path, default=POLICIES, help="policy folder for provguard")
     parser.add_argument("--confirm", choices=["deny", "allow"], default="deny",
                         help="how ProvGuard's CONFIRM decisions resolve with no human present")
     parser.add_argument("--user-tasks", nargs="*", default=[])
@@ -144,9 +175,9 @@ def main() -> None:
                 r = run_one(args, suite, defense, repeat)
                 print(
                     f"{suite:9} {defense:18} r{repeat}  "
-                    f"utility {rate(r['clean_utility']):6.1%}  "
-                    f"utility under attack {rate(r['attacked_utility']):6.1%}  "
-                    f"attack success {rate(r['attack_success']):6.1%}  ({r['seconds']}s)",
+                    f"utility {rate(r['clean_utility'])}  "
+                    f"utility under attack {rate(r['attacked_utility'])}  "
+                    f"attack success {rate(r['attack_success'])}  ({r['seconds']}s)",
                     flush=True,
                 )
 
