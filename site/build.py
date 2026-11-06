@@ -129,7 +129,7 @@ def head_tags() -> str:
         "@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "ProvGuard",
         "description": DESCRIPTION, "url": URL, "codeRepository": "https://github.com/ziko-asm/provguard",
         "programmingLanguage": "Python", "license": "https://opensource.org/licenses/MIT",
-        "author": {"@type": "Person", "name": "Ziya Azizov", "url": "https://ayfar.vercel.app"},
+        "author": {"@type": "Person", "name": "Ziya Azizov", "url": "https://ayfar.dev"},
     }
     d, t = html.escape(DESCRIPTION, quote=True), html.escape(TITLE, quote=True)
     return (

@@ -4,7 +4,7 @@
 
 **Live site and playground: https://provguard.vercel.app**
 
-**Write-up:** [Stop asking "is this text malicious?" — how I stopped 144/144 prompt-injection attacks on an AI banking agent](https://ayfar.vercel.app/yazilar/provguard.html)
+**Write-up:** [Stop asking "is this text malicious?" — how I stopped 144/144 prompt-injection attacks on an AI banking agent](https://ayfar.dev/yazilar/provguard.html)
 
 LLM agents read e-mails, web pages and documents written by strangers, then call
 tools with real side effects. Most defences try to *detect* malicious text. My
@@ -323,4 +323,4 @@ Stated up front, because a security tool that hides its limits is not one.
 
 MIT
 
-By [Ziya Azizov (ayfar)](https://ayfar.vercel.app) · [LinkedIn](https://www.linkedin.com/in/ziya-azizov-91bba638a)
+By [Ziya Azizov (ayfar)](https://ayfar.dev) · [LinkedIn](https://www.linkedin.com/in/ziya-azizov-91bba638a)
