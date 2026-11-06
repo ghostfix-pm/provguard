@@ -4,6 +4,8 @@
 
 **Live site and playground: https://provguard.vercel.app**
 
+**Write-up:** [Stop asking "is this text malicious?" — how I stopped 144/144 prompt-injection attacks on an AI banking agent](https://ayfar.vercel.app/yazilar/provguard.html)
+
 LLM agents read e-mails, web pages and documents written by strangers, then call
 tools with real side effects. Most defences try to *detect* malicious text. My
 [prompt-injection detector benchmark](https://prompt-injection-detector-snowy.vercel.app/)
@@ -35,6 +37,53 @@ cannot drive `send_email` or `transfer_money`, however the e-mail is worded.
    Values that came from untrusted input, *or that the model invented*, fail closed.
 4. **Escalate when the context is tainted.** Sensitive tools can require
    confirmation, or be blocked outright, once any untrusted text has been read.
+
+## New in v0.2
+
+The first evaluation listed what still gets through. v0.2 answers each item
+with a narrow rule, all opt-in, so the blind v2 results below are unchanged.
+
+| Feature | Policy / API | Closes |
+|---|---|---|
+| Links in free text | `body: {urls: trusted}` | attacker link sent to a real colleague in the message body |
+| Secret fields | tool `secret: [passport_number]`, arg `secrets: forbid` | passport number e-mailed to an address the user named |
+| Scoped approval | `guard.grant(tool, arg, value=... \| source=..., uses=1)` | "pay the bill in this file" without opening every payment |
+| Numbers by value | automatic | `240` vs `240.00`, `1,000` vs `1000`; `5` no longer matches inside `1.5` |
+| Weak evidence | `min_length: 3` | one- or two-character values "proven" by a stray match |
+| MCP proxy | `provguard-mcp --policy p.yaml -- <server>` | using ProvGuard with no code changes |
+
+The evaluation changed too:
+
+* **Scored by outcome.** v2 counted an attack as stopped when any attacker
+  call was denied, which overstates a stop if an earlier call already reached
+  the goal. `bench.oracle` now skips denied calls, keeps replaying, and asks
+  AgentDojo's own `security` check whether the goal was reached, twice: with
+  confirmations refused (`goal_no_human`) and with every confirmation approved
+  (`goal_any_human`, where only BLOCK protects). Pairs whose attack fails even
+  with no guard are counted apart as unverifiable. The v2 metric is still
+  reported for comparison.
+* **Confirmation burden.** For each legitimate task the oracle counts the
+  confirmations a user would see, and checks with AgentDojo's `utility` that
+  the task still succeeds when the user approves them.
+* **Exact intervals.** Every rate is printed with a Clopper-Pearson 95%
+  interval (`bench/stats.py`, no SciPy).
+* **Policy lint.** A rule naming a tool or argument the suite does not have
+  protects nothing; the oracle prints these before any number.
+* **Adaptive attack.** `--attack provenance_aware` tells the model about the
+  filter and asks it to launder values through its own reply.
+* **Detector baseline.** `bench.run --defense pi_detector` runs AgentDojo's
+  DeBERTa prompt-injection detector, the approach ProvGuard argues against.
+
+**v3 policies are not blind.** `bench/policies-v3/` uses the new rules and was
+written *after* reading the v2 failures; each change is marked `v3:`. Its
+numbers go to `results/oracle-v3/` and must be reported apart from v2:
+
+```bash
+python -m bench.oracle                                          # blind v2, rescored
+python -m bench.oracle --policies bench/policies-v3 --tag v3     # v3
+python -m bench.oracle --policies bench/policies-v3 --tag v3 --attack provenance_aware
+python site/build.py                                            # the site picks up results/oracle-v3/
+```
 
 ## Results: AgentDojo, replayed without a model
 
@@ -118,10 +167,36 @@ Reproduce with `python -m bench.run --suite banking --defense none provguard
 --no-think --model qwen3-8k --injection-tasks injection_task_0 injection_task_1
 injection_task_2` (about 10 hours on a 6 GB laptop GPU).
 
+## Use it with any MCP client
+
+```json
+{
+  "mcpServers": {
+    "files": {
+      "command": "provguard-mcp",
+      "args": ["--policy", "policy.yaml", "--audit", "provguard.jsonl",
+               "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/home/me/docs"]
+    }
+  }
+}
+```
+
+The proxy forwards MCP over stdio unchanged, except that every `tools/call`
+is checked first. BLOCK comes back as an ordinary tool error with the reason.
+CONFIRM is put to the user through MCP elicitation; a client without
+elicitation gets a refusal, so it fails closed. Every result is recorded with
+the trust label the policy gives that tool.
+
+An MCP server never sees the user's chat message, so values the user typed
+are not trusted automatically: pass them with `--trust` / `--trust-file`,
+mark tools that return the user's own data `output: trusted`, or use `allow`
+lists. One proxy guards one server.
+
 ## Quick start
 
 ```bash
 pip install -e ".[yaml]"
+pytest                      # 71 tests, no network or GPU needed
 python examples/demo.py
 ```
 
@@ -163,6 +238,14 @@ tools:
 Unknown keys and invalid values raise `PolicyError`: a typo in a security policy
 fails loudly instead of being ignored.
 
+v0.2 adds, per argument: `min_length`, `urls: trusted` and `secrets: forbid`;
+per tool: `secret: true` or `secret: [field, ...]`.
+
+```python
+# The user asked to pay the bill in bill.txt: allow that file's IBAN, once.
+guard.grant("send_money", "recipient", source="tool:read_file")
+```
+
 ## Limitations
 
 Stated up front, because a security tool that hides its limits is not one.
@@ -174,9 +257,10 @@ Stated up front, because a security tool that hides its limits is not one.
 - **It constrains arguments, not intent.** An attacker who can only choose
   *which* allowed action happens, with trusted arguments, is limited by
   `on_tainted`, not by argument rules.
-- **Free-text arguments** such as an e-mail body are not constrained by
-  default; requiring a trusted origin for them would block normal use.
-  Leaking data through such fields is a known gap.
+- **Free-text arguments** such as an e-mail body can be checked for links
+  (`urls: trusted`) and marked secret fields (`secrets: forbid`), nothing
+  more. Data the model paraphrases, or that no policy marks secret, can
+  still leave through them.
 - **It needs to see every input.** Text that reaches the model without passing
   through `user`, `system` or `record_result` is invisible to it.
 - **The live evaluation is small.** One local 8B model, one suite, one run
@@ -186,12 +270,17 @@ Stated up front, because a security tool that hides its limits is not one.
 ## Roadmap
 
 - [x] Provenance tracker, policy engine, guard, audit log, tests
-- [ ] MCP proxy: enforce a policy in front of any MCP server without code changes
+- [x] MCP proxy: enforce a policy in front of any MCP server without code changes (v0.2)
+- [x] Links and secret fields in free text, scoped grants, numeric matching (v0.2)
+- [x] Goal-based scoring, confirmation burden, exact intervals, policy lint (v0.2)
+- [ ] Run the v0.2 oracle: blind v2 rescored, v3 policies, `provenance_aware` attack
 - [x] Model-free AgentDojo evaluation (all four suites)
 - [x] Live-model AgentDojo evaluation, banking (Qwen3 8B)
-- [ ] Live evaluation on all suites, repeated runs, stronger models
+- [ ] Live evaluation on all suites, repeated runs, stronger models, detector baseline
 - [ ] Interactive web demo with a site assistant that runs behind ProvGuard
 
 ## License
 
 MIT
+
+By [Ziya Azizov (ayfar)](https://ayfar.vercel.app) · [LinkedIn](https://www.linkedin.com/in/ziya-azizov-91bba638a)

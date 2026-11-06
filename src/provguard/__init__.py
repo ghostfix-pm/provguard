@@ -1,7 +1,7 @@
 """ProvGuard: untrusted data must not steer sensitive tool calls."""
 
 from .audit import AuditLog
-from .guard import Decision, Finding, Guard, ToolCallDenied
+from .guard import Decision, Finding, Grant, Guard, ToolCallDenied
 from .labels import SYSTEM, USER, Source, Trust
 from .policy import Action, ArgRule, Policy, PolicyError, ToolPolicy
 from .tracker import Provenance, ProvenanceTracker
@@ -12,6 +12,7 @@ __all__ = [
     "AuditLog",
     "Decision",
     "Finding",
+    "Grant",
     "Guard",
     "Policy",
     "PolicyError",
@@ -25,4 +26,4 @@ __all__ = [
     "USER",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "provguard"
-version = "0.1.0"
+version = "0.2.0"
 description = "Provenance-based tool-call guard for LLM agents: untrusted data cannot steer sensitive actions."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,9 +22,17 @@ dependencies = []
 yaml = ["pyyaml>=6.0"]
 dev = ["pyyaml>=6.0", "pytest>=8.0"]
 
+[project.scripts]
+provguard-mcp = "provguard.mcp_proxy:main"
+
+[project.urls]
+Homepage = "https://provguard.vercel.app"
+Source = "https://github.com/ziko-asm/provguard"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/provguard"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["src", "."]
