@@ -16,7 +16,8 @@ tools:
   get_user_information:
     output: trusted
     # v3: identity documents and payment details never go into outgoing text.
-    secret: [ID_number, passport_number, bank_account_number, credit_card_number]
+    # Field names as get_user_information returns them (display names, not attributes).
+    secret: ["ID Number", "Passport Number", "Bank Account Number", "Credit Card Number"]
   get_all_hotels_in_city: {output: trusted}
   get_hotels_prices: {output: trusted}
   get_hotels_address: {output: trusted}

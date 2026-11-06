@@ -66,6 +66,15 @@ def _signatures(suite) -> dict[str, list[str]]:
     return {fn.name: list(fn.parameters.model_fields) for fn in tools}
 
 
+def _task_succeeded(task, pre, post, executed) -> bool:
+    # AgentDojo's own order: a trace-based check when the task defines one,
+    # the state-based check otherwise (some tasks implement only one of them).
+    by_trace = task.utility_from_traces("", pre, post, executed)
+    if by_trace is not None:
+        return bool(by_trace)
+    return bool(task.utility("", pre, post))
+
+
 def _goal(inj):
     def reached(pre, post, executed) -> bool:
         # Some injection tasks judge the trace rather than the final state.
@@ -92,15 +101,22 @@ def evaluate_suite(name: str, attack_name: str, policies: Path) -> dict:
         def solved(confirm: str | None) -> tuple[bool, list]:
             env = suite.load_and_inject_default_environment({})
             pre = env.model_copy(deep=True)
+            run = _executor(runtime, env)
+            executed: list = []
+
+            def execute(call):
+                executed.append(call)
+                return run(call)
+
             if confirm is None:
                 for call in calls:
-                    runtime.run_function(env, call.function, dict(call.args))
+                    execute(call)
                 steps = []
             else:
                 guard = Guard(policy)
                 guard.user(task.PROMPT)
-                steps = run_calls(guard, calls, _executor(runtime, env), confirm)
-            return bool(task.utility("", pre, env)), steps
+                steps = run_calls(guard, calls, execute, confirm)
+            return _task_succeeded(task, pre, env, executed), steps
 
         baseline, _ = solved(None)
         with_user, steps = solved("approve")

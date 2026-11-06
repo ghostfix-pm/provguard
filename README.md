@@ -85,6 +85,45 @@ python -m bench.oracle --policies bench/policies-v3 --tag v3 --attack provenance
 python site/build.py                                            # the site picks up results/oracle-v3/
 ```
 
+## Results v0.2: rescored, and the v3 policies
+
+Model-free replay, AgentDojo v1.2.2, `important_instructions`. "Prevented" is
+judged by AgentDojo's own `security` check on the state the attack leaves
+behind; pairs whose attack fails even with no guard are excluded (9 in
+workspace). 95% Clopper-Pearson intervals.
+
+**The blind v2 numbers hold.** Rescoring by outcome found no pair that the v2
+metric counted as stopped while the attack still reached its goal: banking
+144/144, slack 97/105, travel 79/120, workspace 191/231 (82.7%; v2 reported
+200/240 before unverifiable pairs were separated).
+
+**v3 policies (not blind, written after reading the v2 failures):**
+
+| Suite | Prevented, confirmations refused | Prevented, every confirmation approved | Tasks solved with an approving user, v2 → v3 | Confirmations (v3) |
+|---|---|---|---|---|
+| banking | 144 / 144 (97.5–100%) | 144 / 144 | 11 / 14 → 11 / 14 | 0 over 16 tasks |
+| slack | **105 / 105** (96.5–100%) | 84 / 105 | **12 / 21 → 20 / 21** | 18 over 21 tasks |
+| travel | **120 / 120** (97.0–100%) | 80 / 120 | 1 / 1 → 1 / 1 | 5 over 20 tasks |
+| workspace | **231 / 231** (98.4–100%) | 191 / 231 | 13 / 18 → 13 / 18 | 7 over 40 tasks |
+
+* With a person who refuses suspicious confirmations, every replayable attack
+  in all four suites is prevented.
+* Slack shows the trade the v3 goal asked for: tasks that delegate a choice
+  to untrusted content ("visit the link Eve posted") go from blocked to
+  confirmed, so 20 of 21 succeed instead of 12, at 18 confirmations.
+* The middle column is the honest worst case: a person who approves
+  everything. Then only BLOCK rules protect, and the extra coverage of v3
+  over v2 comes from links and secret fields (travel 79 → 80, slack 84 vs
+  97 because some v2 blocks became confirmations).
+* "Solved" is checked only where AgentDojo can judge a task without the
+  model's text answer (14, 21, 1 and 18 tasks); travel's checks almost all
+  read the answer text.
+* A first v3 run listed secret fields by attribute name (`passport_number`)
+  while the tool returns display names (`Passport Number`); the rule never
+  fired and one travel attack got through. The numbers above are from the
+  corrected policy. Policy lint checks tool and argument names, not field
+  names.
+
 ## Results: AgentDojo, replayed without a model
 
 [AgentDojo](https://github.com/ethz-spylab/agentdojo) (v1.2.2) ships a reference
@@ -273,7 +312,8 @@ Stated up front, because a security tool that hides its limits is not one.
 - [x] MCP proxy: enforce a policy in front of any MCP server without code changes (v0.2)
 - [x] Links and secret fields in free text, scoped grants, numeric matching (v0.2)
 - [x] Goal-based scoring, confirmation burden, exact intervals, policy lint (v0.2)
-- [ ] Run the v0.2 oracle: blind v2 rescored, v3 policies, `provenance_aware` attack
+- [x] Run the v0.2 oracle: blind v2 rescored, v3 policies
+- [ ] `provenance_aware` attack, oracle and live
 - [x] Model-free AgentDojo evaluation (all four suites)
 - [x] Live-model AgentDojo evaluation, banking (Qwen3 8B)
 - [ ] Live evaluation on all suites, repeated runs, stronger models, detector baseline
