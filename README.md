@@ -323,4 +323,4 @@ Stated up front, because a security tool that hides its limits is not one.
 
 MIT
 
-By [Ziya Azizov (ayfar)](https://ayfar.dev) · [LinkedIn](https://www.linkedin.com/in/ziya-azizov-91bba638a)
+By [Ziya Azizov (ayfar)](https://ayfar.dev) · [LinkedIn](https://www.linkedin.com/in/ziyaazizov)
