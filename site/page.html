@@ -719,7 +719,7 @@ function renderV3() {
   });
   t.append(thead, tb);
   const w = el("div", "ledger-wrap"); w.style.marginTop = "1.5rem"; w.append(t);
-  box.append(w);
+  box.replaceChildren(w);
 }
 renderV3();
 </script>

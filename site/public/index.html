@@ -366,7 +366,7 @@ footer { padding-block: 2.5rem; border-top: 1px solid var(--line); color: var(--
         <li><h3>A guard that knows it is watched</h3><p>A new <code>provenance_aware</code> attack tells the model about the filter and asks it to launder values. The harness can also run AgentDojo's DeBERTa injection detector as a baseline, the approach ProvGuard argues against.</p></li>
       </ul>
       <p style="margin-top:1.75rem;max-width:70ch"><strong>The blind numbers hold.</strong> Rescored by outcome, no attack that v2 counted as stopped reached its goal. With the v3 policies, and a person who refuses suspicious confirmations, every replayable attack in all four suites is prevented, and Slack solves 20 of 21 tasks instead of 12. The second column below is the worst case: a person who approves everything.</p>
-      <div id="v3"></div>
+      <div id="v3"><div class="ledger-wrap" style="margin-top:1.5rem"><table class="ledger"><thead><tr><th>Suite (v3 policy, not blind)</th><th>Goal prevented, nobody approves</th><th>Goal prevented, everything approved</th><th>Tasks solved with an approving user</th><th>Confirmations per task</th></tr></thead><tbody><tr><td class="suite">banking</td><td>144 / 144 (95% CI 97%-100%)</td><td>144 / 144 (95% CI 97%-100%)</td><td>11 / 14</td><td>0.00</td></tr><tr><td class="suite">slack</td><td>105 / 105 (95% CI 97%-100%)</td><td>84 / 105 (95% CI 71%-87%)</td><td>20 / 21</td><td>0.86</td></tr><tr><td class="suite">travel</td><td>120 / 120 (95% CI 97%-100%)</td><td>80 / 120 (95% CI 57%-75%)</td><td>1 / 1</td><td>0.25</td></tr><tr><td class="suite">workspace</td><td>231 / 231 (95% CI 98%-100%)</td><td>191 / 231 (95% CI 77%-87%)</td><td>13 / 18</td><td>0.17</td></tr></tbody></table></div></div>
       <p class="small" style="margin-top:1.25rem">The blind v2 policies above stay frozen. The v3 policies that use these rules were written after reading the v2 failures, so their numbers are reported separately and labelled as such.</p>
     </section>
 
@@ -739,7 +739,7 @@ function renderV3() {
   });
   t.append(thead, tb);
   const w = el("div", "ledger-wrap"); w.style.marginTop = "1.5rem"; w.append(t);
-  box.append(w);
+  box.replaceChildren(w);
 }
 renderV3();
 </script>

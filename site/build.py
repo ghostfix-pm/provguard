@@ -106,6 +106,24 @@ def ledger_rows(oracle: dict) -> str:
     return "".join(rows)
 
 
+def v3_table(v3: dict) -> str:
+    """Server-rendered v3 table (same markup the page script builds)."""
+    if not v3:
+        return ""
+    heads = ["Suite (v3 policy, not blind)", "Goal prevented, nobody approves",
+             "Goal prevented, everything approved", "Tasks solved with an approving user", "Confirmations per task"]
+    rows = "".join(
+        f'<tr><td class="suite">{html.escape(suite)}</td>'
+        f'<td>{r["no_human"]} / {r["verifiable"]} ({r["no_human_ci"]})</td>'
+        f'<td>{r["any_human"]} / {r["verifiable"]} ({r["any_human_ci"]})</td>'
+        f'<td>{r["solved"]} / {r["judged"]}</td><td>{r["confirm_rate"]}</td></tr>'
+        for suite, r in v3.items()
+    )
+    head = "".join(f"<th>{h}</th>" for h in heads)
+    return (f'<div class="ledger-wrap" style="margin-top:1.5rem"><table class="ledger">'
+            f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table></div>")
+
+
 def head_tags() -> str:
     ld = {
         "@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "ProvGuard",
@@ -157,6 +175,7 @@ def main() -> None:
     body = (SITE / "page.html").read_text(encoding="utf-8")
     body = body.replace("/*DATA*/null", json.dumps(data))
     body = body.replace('<tbody id="ledger"></tbody>', f'<tbody id="ledger">{ledger_rows(summary)}</tbody>')
+    body = body.replace('<div id="v3"></div>', f'<div id="v3">{v3_table(data["v3"])}</div>')
     body = body.replace("<title>ProvGuard</title>\n", "")
 
     (SITE / "build").mkdir(exist_ok=True)
