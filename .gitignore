@@ -10,3 +10,5 @@ runs/
 results/*/llama*/
 overnight*
 site/build/
+.vercel
+.env*
